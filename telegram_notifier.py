@@ -4,8 +4,15 @@
 import os
 import requests
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# 台灣時區 (UTC+8)
+TAIWAN_TZ = timezone(timedelta(hours=8))
+
+def now_taiwan():
+    """獲取台灣時間"""
+    return datetime.now(TAIWAN_TZ)
 
 # 配置文件路徑
 CONFIG_FILE = Path(__file__).parent / "telegram_config.json"
@@ -82,6 +89,10 @@ def send_telegram_message(bot_token, chat_id, message):
     if not bot_token or not chat_id:
         return False, "Bot token 或 Chat ID 未設定"
     
+    # 清理輸入
+    bot_token = bot_token.strip()
+    chat_id = chat_id.strip()
+    
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
@@ -91,10 +102,24 @@ def send_telegram_message(bot_token, chat_id, message):
     
     try:
         response = requests.post(url, json=payload, timeout=10)
+        response_data = response.json()
+        
         if response.status_code == 200:
             return True, "發送成功"
         else:
-            return False, f"發送失敗: {response.status_code} - {response.text}"
+            # 解析 Telegram API 的錯誤信息
+            error_description = "未知錯誤"
+            if isinstance(response_data, dict):
+                if "description" in response_data:
+                    error_description = response_data["description"]
+                elif "error_code" in response_data:
+                    error_description = f"錯誤代碼 {response_data['error_code']}"
+            
+            return False, f"發送失敗: {error_description}"
+    except requests.exceptions.Timeout:
+        return False, "發送失敗: 請求超時，請檢查網絡連接"
+    except requests.exceptions.ConnectionError:
+        return False, "發送失敗: 無法連接到 Telegram API，請檢查網絡連接"
     except Exception as e:
         return False, f"發送失敗: {str(e)}"
 
@@ -140,7 +165,7 @@ def should_send_notification(sensor_type, config):
     
     try:
         last_time = datetime.fromisoformat(last_time_str)
-        elapsed = datetime.now() - last_time
+        elapsed = now_taiwan() - last_time
         if elapsed < timedelta(minutes=cooldown_minutes):
             return False
     except:
@@ -153,7 +178,7 @@ def update_last_notification(sensor_type, config):
     """更新最後通知時間"""
     if "last_notification" not in config:
         config["last_notification"] = {}
-    config["last_notification"][sensor_type] = datetime.now().isoformat()
+    config["last_notification"][sensor_type] = now_taiwan().isoformat()
     save_config(config)
 
 
@@ -198,7 +223,7 @@ def check_and_notify(co2_ppm=None, temperature_c=None, humidity=None):
             message_parts.append(f"• {msg}")
             update_last_notification(sensor_type, config)
         
-        message_parts.append(f"\n時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        message_parts.append(f"\n時間: {now_taiwan().strftime('%Y-%m-%d %H:%M:%S')}")
         
         full_message = "\n".join(message_parts)
         success, result = send_telegram_message(bot_token, chat_id, full_message)

@@ -592,8 +592,9 @@
             
             if (data.timestamp) {
                 const date = new Date(data.timestamp);
+                // 使用台灣時區顯示
                 document.getElementById('last-update').textContent = 
-                    `最後更新: ${date.toLocaleString('zh-TW')}`;
+                    `最後更新: ${date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`;
             }
         }
         
@@ -621,7 +622,11 @@
                 // 處理數據
                 const labels = data.map(d => {
                     const date = new Date(d.timestamp);
-                    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                    return date.toLocaleTimeString('zh-TW', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        timeZone: 'Asia/Taipei'
+                    });
                 });
                 
                 const co2Data = data.map(d => d.co2_ppm).filter(v => v !== null);
@@ -767,19 +772,40 @@
         }
         
         async function testTelegram() {
+            // 先檢查配置是否已設定
+            const botToken = document.getElementById('bot_token').value.trim();
+            const chatId = document.getElementById('chat_id').value.trim();
+            
+            if (!botToken) {
+                showAlert('請先填入 Bot Token', 'error');
+                return;
+            }
+            
+            if (!chatId) {
+                showAlert('請先填入 Chat ID', 'error');
+                return;
+            }
+            
             try {
+                showAlert('正在發送測試通知...', 'success');
                 const response = await fetch('/api/telegram/test', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
                 });
                 
                 const result = await response.json();
-                if (result.success) {
-                    showAlert('測試通知已發送！請檢查您的 Telegram。', 'success');
+                if (response.ok && result.success) {
+                    showAlert('✅ 測試通知已發送！請檢查您的 Telegram。', 'success');
                 } else {
-                    showAlert('測試失敗: ' + (result.error || '未知錯誤'), 'error');
+                    const errorMsg = result.error || `HTTP ${response.status}: ${response.statusText}`;
+                    showAlert('❌ 測試失敗: ' + errorMsg, 'error');
+                    console.error('Telegram 測試失敗:', result);
                 }
             } catch (error) {
-                showAlert('測試失敗: ' + error.message, 'error');
+                showAlert('❌ 測試失敗: ' + error.message, 'error');
+                console.error('Telegram 測試異常:', error);
             }
         }
         

@@ -7,10 +7,17 @@ import threading
 import asyncio
 import struct
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO, emit
 from bleak import BleakScanner, BleakClient
+
+# 台灣時區 (UTC+8)
+TAIWAN_TZ = timezone(timedelta(hours=8))
+
+def now_taiwan():
+    """獲取台灣時間"""
+    return datetime.now(TAIWAN_TZ)
 
 # 確保 print 輸出到標準輸出（systemd 會捕獲）
 def log_debug(msg):
@@ -134,7 +141,7 @@ def save_reading(co2_ppm=None, temperature_c=None, humidity=None, raw_data=None,
         INSERT INTO readings (timestamp, co2_ppm, temperature_c, humidity, raw_data, rssi)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (
-        datetime.now().isoformat(),
+        now_taiwan().isoformat(),
         co2_ppm,
         temperature_c,
         humidity,
@@ -158,7 +165,7 @@ def update_latest_reading(co2_ppm=None, temperature_c=None, humidity=None, rssi=
     if rssi is not None:
         latest_reading['rssi'] = rssi
     
-    latest_reading['timestamp'] = datetime.now().isoformat()
+    latest_reading['timestamp'] = now_taiwan().isoformat()
     
     # 檢查並發送 Telegram 通知
     if TELEGRAM_AVAILABLE:
@@ -521,7 +528,7 @@ def api_latest():
 def api_history():
     """獲取歷史數據"""
     hours = int(request.args.get('hours', 24))
-    since = datetime.now() - timedelta(hours=hours)
+    since = now_taiwan() - timedelta(hours=hours)
     
     conn = get_db()
     rows = conn.execute("""
@@ -542,7 +549,7 @@ def api_stats():
     conn = get_db()
     
     # 最近24小時的統計
-    since = datetime.now() - timedelta(hours=24)
+    since = now_taiwan() - timedelta(hours=24)
     
     stats = conn.execute("""
         SELECT 
@@ -594,8 +601,10 @@ def api_telegram_config_set():
             config["enabled"] = bool(data["enabled"])
         if "bot_token" in data:
             config["bot_token"] = str(data["bot_token"]).strip()
+            log_debug(f"Telegram 配置: Bot token 已更新（長度: {len(config['bot_token'])}）")
         if "chat_id" in data:
             config["chat_id"] = str(data["chat_id"]).strip()
+            log_debug(f"Telegram 配置: Chat ID 已更新: {config['chat_id']}")
         if "thresholds" in data:
             for sensor_type, threshold_config in data["thresholds"].items():
                 if sensor_type in config["thresholds"]:
@@ -609,10 +618,13 @@ def api_telegram_config_set():
                         config["thresholds"][sensor_type]["cooldown_minutes"] = int(threshold_config["cooldown_minutes"])
         
         if save_config(config):
+            log_debug("Telegram 配置已保存")
             return jsonify({"success": True, "message": "配置已保存"})
         else:
+            log_debug("Telegram 配置保存失敗")
             return jsonify({"error": "保存配置失敗"}), 500
     except Exception as e:
+        log_debug(f"Telegram 配置設定異常: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -620,25 +632,37 @@ def api_telegram_config_set():
 def api_telegram_test():
     """測試 Telegram 通知"""
     if not TELEGRAM_AVAILABLE:
+        log_debug("Telegram 測試失敗: 模組未載入")
         return jsonify({"error": "Telegram 模組未載入"}), 500
     
     try:
         config = load_config()
-        bot_token = config.get("bot_token", "")
-        chat_id = config.get("chat_id", "")
+        bot_token = config.get("bot_token", "").strip()
+        chat_id = config.get("chat_id", "").strip()
         
-        if not bot_token or not chat_id:
-            return jsonify({"error": "Bot token 或 Chat ID 未設定"}), 400
+        log_debug(f"Telegram 測試: bot_token 長度={len(bot_token)}, chat_id={chat_id}")
         
-        test_message = f"🧪 <b>MyCO2 測試通知</b>\n\n這是一條測試消息。\n時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        if not bot_token:
+            log_debug("Telegram 測試失敗: Bot token 未設定")
+            return jsonify({"error": "Bot token 未設定，請先填入 Bot Token"}), 400
+        
+        if not chat_id:
+            log_debug("Telegram 測試失敗: Chat ID 未設定")
+            return jsonify({"error": "Chat ID 未設定，請先填入 Chat ID"}), 400
+        
+        test_message = f"🧪 <b>MyCO2 測試通知</b>\n\n這是一條測試消息。\n時間: {now_taiwan().strftime('%Y-%m-%d %H:%M:%S')}"
+        log_debug(f"Telegram 測試: 發送消息到 chat_id={chat_id}")
         success, result = send_telegram_message(bot_token, chat_id, test_message)
         
         if success:
-            return jsonify({"success": True, "message": "測試消息已發送"})
+            log_debug("Telegram 測試成功: 消息已發送")
+            return jsonify({"success": True, "message": "測試消息已發送！請檢查您的 Telegram。"})
         else:
+            log_debug(f"Telegram 測試失敗: {result}")
             return jsonify({"error": result}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        log_debug(f"Telegram 測試異常: {str(e)}")
+        return jsonify({"error": f"測試失敗: {str(e)}"}), 500
 
 
 @socketio.on('connect')
