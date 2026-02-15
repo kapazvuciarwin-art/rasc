@@ -17,7 +17,7 @@
             font-family: "Segoe UI", "Noto Sans TC", sans-serif;
             background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             color: #e8e8e8;
-            padding: 20px;
+            padding: clamp(10px, 1.6vw, 20px);
             min-height: 100vh;
         }
         
@@ -35,19 +35,17 @@
         }
         
         .status-bar {
-            display: flex;
-            justify-content: space-around;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-            gap: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            margin-bottom: 20px;
+            gap: clamp(8px, 1.2vw, 14px);
         }
         
         .status-card {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
             border-radius: 15px;
-            padding: 25px;
-            min-width: 200px;
+            padding: clamp(12px, 1.3vw, 18px);
             text-align: center;
             box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.1);
@@ -62,7 +60,7 @@
         }
         
         .status-card .value {
-            font-size: 2.5em;
+            font-size: clamp(1.4rem, 2.6vw, 2.1rem);
             font-weight: bold;
             color: #fff;
             margin-bottom: 5px;
@@ -77,6 +75,9 @@
         .status-card.temp .value { color: #f87171; }
         .status-card.humidity .value { color: #34d399; }
         .status-card.rssi .value { color: #a78bfa; }
+        .status-card.cpu .value { color: #f59e0b; }
+        .status-card.ram .value { color: #22d3ee; }
+        .status-card.cpu-temp .value { color: #f97316; }
         
         .status-card .status-indicator {
             display: inline-block;
@@ -118,6 +119,22 @@
             gap: 10px;
             margin-bottom: 20px;
             flex-wrap: wrap;
+        }
+
+        .metric-toggles {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 14px;
+            margin-bottom: 16px;
+            color: #d4d4d8;
+            font-size: 0.92em;
+        }
+
+        .metric-toggles label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
         }
         
         .btn {
@@ -177,6 +194,12 @@
             overflow-y: auto;
             box-shadow: 0 8px 32px rgba(0,0,0,0.5);
             border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .small-help {
+            color: #a1a1aa;
+            font-size: 0.85em;
+            margin-top: 6px;
         }
         
         .modal-header {
@@ -320,38 +343,12 @@
             display: block;
         }
         
-        .history-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        
-        .history-table th,
-        .history-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .history-table th {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-            font-weight: 600;
-        }
-        
-        .history-table td {
-            color: #e8e8e8;
-        }
-        
-        .history-table tr:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
-            <h1 style="margin: 0;">🌡️ MyCO2 環境監控儀表板</h1>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; gap: 10px; flex-wrap: wrap;">
+            <h1 style="margin: 0; font-size: clamp(1.4rem, 2.8vw, 2.2rem);">🌡️ MyCO2 環境監控儀表板</h1>
             <button class="btn" onclick="openSettings()" style="padding: 12px 24px; font-size: 1em;">⚙️ 通知設定</button>
         </div>
         
@@ -383,11 +380,33 @@
                 <div class="unit">dBm</div>
                 <span class="status-indicator" id="rssi-indicator"></span>
             </div>
+
+            <div class="status-card cpu">
+                <h3>CPU 使用率</h3>
+                <div class="value" id="cpu-usage-value">--</div>
+                <div class="unit">%</div>
+                <span class="status-indicator" id="cpu-usage-indicator"></span>
+            </div>
+
+            <div class="status-card ram">
+                <h3>RAM 使用率</h3>
+                <div class="value" id="ram-usage-value">--</div>
+                <div class="unit">%</div>
+                <span class="status-indicator" id="ram-usage-indicator"></span>
+            </div>
+
+            <div class="status-card cpu-temp">
+                <h3>CPU 溫度</h3>
+                <div class="value" id="cpu-temp-value">--</div>
+                <div class="unit">°C</div>
+                <span class="status-indicator" id="cpu-temp-indicator"></span>
+            </div>
+
         </div>
         
         <div class="history-buttons">
             <button class="btn" onclick="showHistoryChart()">📈 顯示折線圖</button>
-            <button class="btn" onclick="showHistoryTable()">📊 顯示表格</button>
+            <button class="btn" onclick="refreshCurrentHistory()">🔄 重新載入折線圖</button>
         </div>
         
         <div class="chart-container history-container" id="chartContainer">
@@ -398,37 +417,16 @@
                 <button class="btn" onclick="loadHistory(24, this)">24小時</button>
                 <button class="btn" onclick="loadHistory(48, this)">48小時</button>
             </div>
+            <div class="metric-toggles" id="metricToggles">
+                <label><input type="checkbox" value="co2_ppm" checked>CO₂</label>
+                <label><input type="checkbox" value="temperature_c" checked>溫度</label>
+                <label><input type="checkbox" value="humidity" checked>濕度</label>
+                <label><input type="checkbox" value="rssi">訊號強度</label>
+                <label><input type="checkbox" value="cpu_usage_percent">CPU 使用率</label>
+                <label><input type="checkbox" value="ram_usage_percent">RAM 使用率</label>
+                <label><input type="checkbox" value="cpu_temp_c">CPU 溫度</label>
+            </div>
             <canvas id="historyChart"></canvas>
-        </div>
-        
-        <div class="chart-container history-container" id="tableContainer">
-            <h2>歷史數據 - 表格</h2>
-            <div class="controls">
-                <button class="btn active" onclick="loadHistoryTable(1, this)">1小時</button>
-                <button class="btn" onclick="loadHistoryTable(6, this)">6小時</button>
-                <button class="btn" onclick="loadHistoryTable(24, this)">24小時</button>
-                <button class="btn" onclick="loadHistoryTable(48, this)">48小時</button>
-            </div>
-            <div id="historyTableWrapper">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th>時間</th>
-                            <th>CO₂ (ppm)</th>
-                            <th>溫度 (°C)</th>
-                            <th>濕度 (%)</th>
-                            <th>訊號強度 (dBm)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="historyTableBody">
-                        <tr>
-                            <td colspan="5" style="text-align: center; padding: 40px;">
-                                <div class="no-data">點擊上方按鈕載入數據</div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
         </div>
         
         <div class="timestamp" id="last-update">
@@ -463,6 +461,15 @@
                         <input type="text" id="chat_id" placeholder="例如: 123456789">
                     </div>
                     
+                    <div class="threshold-section">
+                        <h3>畫面更新頻率</h3>
+                        <div class="form-group">
+                            <label>更新間隔（秒）</label>
+                            <input type="number" id="refresh_seconds" min="2" max="3600" step="1" value="10">
+                            <div class="small-help">預設 10 秒。調整後會立即生效並保存在此瀏覽器。</div>
+                        </div>
+                    </div>
+
                     <div class="threshold-section">
                         <h3>CO₂ 濃度 (ppm)</h3>
                         <label>
@@ -543,6 +550,34 @@
         // 圖表
         let historyChart = null;
         let currentHours = 24;
+        let refreshTimer = null;
+        let lastHistoryData = [];
+        const MAX_HISTORY_POINTS = 360;
+
+        const CHART_METRICS = [
+            { key: 'co2_ppm', label: 'CO₂ (ppm)', color: '#60a5fa', axis: 'y' },
+            { key: 'temperature_c', label: '溫度 (°C)', color: '#f87171', axis: 'y1' },
+            { key: 'humidity', label: '濕度 (%)', color: '#34d399', axis: 'y1' },
+            { key: 'rssi', label: '訊號強度 (dBm)', color: '#a78bfa', axis: 'y1' },
+            { key: 'cpu_usage_percent', label: 'CPU 使用率 (%)', color: '#f59e0b', axis: 'y1' },
+            { key: 'ram_usage_percent', label: 'RAM 使用率 (%)', color: '#22d3ee', axis: 'y1' },
+            { key: 'cpu_temp_c', label: 'CPU 溫度 (°C)', color: '#f97316', axis: 'y1' }
+        ];
+
+        function getRefreshSeconds() {
+            const raw = localStorage.getItem('dashboardRefreshSeconds');
+            const parsed = Number(raw);
+            if (!Number.isFinite(parsed) || parsed < 2 || parsed > 3600) {
+                return 10;
+            }
+            return Math.round(parsed);
+        }
+
+        function setRefreshSeconds(seconds) {
+            const normalized = Math.max(2, Math.min(3600, Math.round(Number(seconds) || 10)));
+            localStorage.setItem('dashboardRefreshSeconds', String(normalized));
+            return normalized;
+        }
         
         // 初始化圖表
         function initChart() {
@@ -551,34 +586,19 @@
                 type: 'line',
                 data: {
                     labels: [],
-                    datasets: [
-                        {
-                            label: 'CO₂ (ppm)',
-                            data: [],
-                            borderColor: '#60a5fa',
-                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y'
-                        },
-                        {
-                            label: '溫度 (°C)',
-                            data: [],
-                            borderColor: '#f87171',
-                            backgroundColor: 'rgba(248, 113, 113, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y1'
-                        },
-                        {
-                            label: '濕度 (%)',
-                            data: [],
-                            borderColor: '#34d399',
-                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
-                            tension: 0.4,
-                            yAxisID: 'y2'
-                        }
-                    ]
+                    datasets: CHART_METRICS.map(metric => ({
+                        label: metric.label,
+                        metricKey: metric.key,
+                        data: [],
+                        borderColor: metric.color,
+                        backgroundColor: `${metric.color}22`,
+                        tension: 0.35,
+                        yAxisID: metric.axis,
+                        hidden: !isMetricChecked(metric.key)
+                    }))
                 },
                 options: {
+                    animation: false,
                     responsive: true,
                     maintainAspectRatio: true,
                     interaction: {
@@ -620,29 +640,77 @@
                             type: 'linear',
                             display: true,
                             position: 'right',
-                            ticks: { color: '#f87171' },
+                            ticks: { color: '#d1d5db' },
                             grid: { drawOnChartArea: false },
                             title: {
                                 display: true,
-                                text: '溫度 (°C)',
-                                color: '#f87171'
-                            }
-                        },
-                        y2: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            ticks: { color: '#34d399' },
-                            grid: { drawOnChartArea: false },
-                            title: {
-                                display: true,
-                                text: '濕度 (%)',
-                                color: '#34d399'
+                                text: '其他感測值',
+                                color: '#d1d5db'
                             }
                         }
                     }
                 }
             });
+        }
+
+        function isMetricChecked(metricKey) {
+            const checkbox = document.querySelector(`#metricToggles input[value="${metricKey}"]`);
+            return checkbox ? checkbox.checked : false;
+        }
+
+        function applyMetricSelection() {
+            if (!historyChart) return;
+            historyChart.data.datasets.forEach(dataset => {
+                dataset.hidden = !isMetricChecked(dataset.metricKey);
+            });
+            historyChart.update('none');
+        }
+
+        function downsampleHistoryData(data, maxPoints = MAX_HISTORY_POINTS) {
+            if (!Array.isArray(data) || data.length <= maxPoints) {
+                return data;
+            }
+
+            const sampled = [];
+            const step = data.length / maxPoints;
+            for (let i = 0; i < maxPoints; i++) {
+                const index = Math.floor(i * step);
+                sampled.push(data[Math.min(index, data.length - 1)]);
+            }
+            return sampled;
+        }
+
+        function updateHistoryChartWithData(data) {
+            if (!historyChart) {
+                initChart();
+            }
+
+            const sampledData = downsampleHistoryData(data);
+
+            if (!sampledData.length) {
+                historyChart.data.labels = [];
+                historyChart.data.datasets.forEach(dataset => {
+                    dataset.data = [];
+                });
+                historyChart.update('none');
+                return;
+            }
+
+            const labels = sampledData.map(d => {
+                const date = new Date(d.timestamp);
+                return date.toLocaleTimeString('zh-TW', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'Asia/Taipei'
+                });
+            });
+
+            historyChart.data.labels = labels;
+            historyChart.data.datasets.forEach(dataset => {
+                dataset.data = sampledData.map(row => row[dataset.metricKey]);
+                dataset.hidden = !isMetricChecked(dataset.metricKey);
+            });
+            historyChart.update('none');
         }
         
         // 更新顯示值
@@ -666,6 +734,21 @@
                 document.getElementById('rssi-value').textContent = data.rssi;
                 document.getElementById('rssi-indicator').classList.add('active');
             }
+
+            if (data.cpu_usage_percent !== null && data.cpu_usage_percent !== undefined) {
+                document.getElementById('cpu-usage-value').textContent = Number(data.cpu_usage_percent).toFixed(1);
+                document.getElementById('cpu-usage-indicator').classList.add('active');
+            }
+
+            if (data.ram_usage_percent !== null && data.ram_usage_percent !== undefined) {
+                document.getElementById('ram-usage-value').textContent = Number(data.ram_usage_percent).toFixed(1);
+                document.getElementById('ram-usage-indicator').classList.add('active');
+            }
+
+            if (data.cpu_temp_c !== null && data.cpu_temp_c !== undefined) {
+                document.getElementById('cpu-temp-value').textContent = Number(data.cpu_temp_c).toFixed(1);
+                document.getElementById('cpu-temp-indicator').classList.add('active');
+            }
             
             if (data.timestamp) {
                 const date = new Date(data.timestamp);
@@ -674,11 +757,60 @@
                     `最後更新: ${date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`;
             }
         }
+
+        function updateSystemDisplay(systemData) {
+            const setMetric = (id, indicatorId, value, digits = 1) => {
+                if (value !== null && value !== undefined && Number.isFinite(Number(value))) {
+                    const num = Number(value);
+                    document.getElementById(id).textContent = num.toFixed(digits);
+                    document.getElementById(indicatorId).classList.add('active');
+                }
+            };
+
+            setMetric('cpu-usage-value', 'cpu-usage-indicator', systemData.cpu_usage_percent);
+            setMetric('ram-usage-value', 'ram-usage-indicator', systemData.ram_usage_percent);
+
+            const temps = systemData.temperatures_c || {};
+            setMetric('cpu-temp-value', 'cpu-temp-indicator', temps.cpu);
+        }
+
+        async function fetchSystemMetrics() {
+            try {
+                const response = await fetch('/api/system');
+                if (!response.ok) return;
+                const data = await response.json();
+                updateSystemDisplay(data);
+            } catch (error) {
+                console.error('載入系統資訊失敗:', error);
+            }
+        }
+
+        async function fetchLatestSnapshot() {
+            try {
+                const response = await fetch('/api/latest');
+                if (!response.ok) return;
+                const data = await response.json();
+                updateDisplay(data);
+            } catch (error) {
+                console.error('載入最新感測資料失敗:', error);
+            }
+        }
+
+        function restartRefreshTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+
+            const seconds = getRefreshSeconds();
+            refreshTimer = setInterval(() => {
+                fetchLatestSnapshot();
+                fetchSystemMetrics();
+            }, seconds * 1000);
+        }
         
         // 顯示歷史折線圖
         function showHistoryChart() {
             document.getElementById('chartContainer').classList.add('visible');
-            document.getElementById('tableContainer').classList.remove('visible');
             
             // 如果圖表尚未初始化，先初始化
             if (!historyChart) {
@@ -688,14 +820,9 @@
             // 載入默認24小時數據
             loadHistory(24, null);
         }
-        
-        // 顯示歷史表格
-        function showHistoryTable() {
-            document.getElementById('tableContainer').classList.add('visible');
-            document.getElementById('chartContainer').classList.remove('visible');
-            
-            // 載入默認24小時數據
-            loadHistoryTable(24, null);
+
+        function refreshCurrentHistory() {
+            loadHistory(currentHours, null);
         }
         
         // 載入歷史數據（折線圖）
@@ -722,104 +849,17 @@
             }
             
             try {
-                const response = await fetch(`/api/history?hours=${hours}`);
+                const response = await fetch(`/api/history?hours=${hours}&max_points=${MAX_HISTORY_POINTS}`);
                 const data = await response.json();
                 
                 if (!historyChart) {
                     initChart();
                 }
-                
-                if (data.length === 0) {
-                    historyChart.data.labels = [];
-                    historyChart.data.datasets[0].data = [];
-                    historyChart.data.datasets[1].data = [];
-                    historyChart.data.datasets[2].data = [];
-                    historyChart.update();
-                    return;
-                }
-                
-                // 處理數據
-                const labels = data.map(d => {
-                    const date = new Date(d.timestamp);
-                    return date.toLocaleTimeString('zh-TW', { 
-                        hour: '2-digit', 
-                        minute: '2-digit',
-                        timeZone: 'Asia/Taipei'
-                    });
-                });
-                
-                // 更新圖表
-                historyChart.data.labels = labels;
-                historyChart.data.datasets[0].data = data.map(d => d.co2_ppm);
-                historyChart.data.datasets[1].data = data.map(d => d.temperature_c);
-                historyChart.data.datasets[2].data = data.map(d => d.humidity);
-                historyChart.update();
+                lastHistoryData = data;
+                updateHistoryChartWithData(data);
                 
             } catch (error) {
                 console.error('載入歷史數據失敗:', error);
-            }
-        }
-        
-        // 載入歷史數據（表格）
-        async function loadHistoryTable(hours, buttonElement) {
-            // 更新按鈕狀態（只在表格容器內）
-            const tableContainer = document.getElementById('tableContainer');
-            tableContainer.querySelectorAll('.controls .btn').forEach(btn => btn.classList.remove('active'));
-            if (buttonElement) {
-                buttonElement.classList.add('active');
-            } else {
-                // 如果沒有傳入按鈕元素，找到對應小時的按鈕
-                const buttons = tableContainer.querySelectorAll('.controls .btn');
-                buttons.forEach(btn => {
-                    const btnText = btn.textContent.trim();
-                    if ((hours === 1 && btnText === '1小時') ||
-                        (hours === 6 && btnText === '6小時') ||
-                        (hours === 24 && btnText === '24小時') ||
-                        (hours === 48 && btnText === '48小時')) {
-                        btn.classList.add('active');
-                    }
-                });
-            }
-            
-            try {
-                const response = await fetch(`/api/history?hours=${hours}`);
-                const data = await response.json();
-                
-                const tbody = document.getElementById('historyTableBody');
-                
-                if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px;"><div class="no-data">沒有數據</div></td></tr>';
-                    return;
-                }
-                
-                // 生成表格行
-                tbody.innerHTML = data.map(d => {
-                    const date = new Date(d.timestamp);
-                    const timeStr = date.toLocaleString('zh-TW', { 
-                        timeZone: 'Asia/Taipei',
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    
-                    return `
-                        <tr>
-                            <td>${timeStr}</td>
-                            <td>${d.co2_ppm !== null ? d.co2_ppm : '--'}</td>
-                            <td>${d.temperature_c !== null ? d.temperature_c.toFixed(1) : '--'}</td>
-                            <td>${d.humidity !== null ? d.humidity.toFixed(1) : '--'}</td>
-                            <td>${d.rssi !== null ? d.rssi : '--'}</td>
-                        </tr>
-                    `;
-                }).join('');
-                
-            } catch (error) {
-                console.error('載入歷史表格失敗:', error);
-                document.getElementById('historyTableBody').innerHTML = 
-                    '<tr><td colspan="5" style="text-align: center; padding: 40px;"><div class="no-data">載入失敗</div></td></tr>';
             }
         }
         
@@ -827,9 +867,9 @@
         socket.on('connect', () => {
             console.log('已連接到伺服器');
             // 載入初始數據
-            fetch('/api/latest')
-                .then(r => r.json())
-                .then(data => updateDisplay(data));
+            fetchLatestSnapshot();
+            fetchSystemMetrics();
+            restartRefreshTimer();
             // 不再自動載入歷史數據，等待用戶點擊按鈕
         });
         
@@ -889,6 +929,8 @@
                 document.getElementById('humidity_min').value = humidity.min || '';
                 document.getElementById('humidity_max').value = humidity.max || '';
                 document.getElementById('humidity_cooldown').value = humidity.cooldown_minutes || 30;
+
+                document.getElementById('refresh_seconds').value = getRefreshSeconds();
             } catch (error) {
                 showAlert('載入設定失敗: ' + error.message, 'error');
             }
@@ -896,6 +938,12 @@
         
         async function saveSettings(event) {
             event.preventDefault();
+
+            const refreshSecondsInput = document.getElementById('refresh_seconds').value;
+            const refreshSeconds = setRefreshSeconds(refreshSecondsInput);
+            restartRefreshTimer();
+            fetchLatestSnapshot();
+            fetchSystemMetrics();
             
             const config = {
                 enabled: document.getElementById('enabled').checked,
@@ -934,7 +982,7 @@
                 
                 const result = await response.json();
                 if (result.success) {
-                    showAlert('設定已儲存！', 'success');
+                    showAlert(`設定已儲存！更新頻率：每 ${refreshSeconds} 秒`, 'success');
                 } else {
                     showAlert('儲存失敗: ' + (result.error || '未知錯誤'), 'error');
                 }
@@ -991,6 +1039,21 @@
         
         // 綁定表單提交事件
         document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+        document.querySelectorAll('#metricToggles input[type="checkbox"]').forEach(input => {
+            input.addEventListener('change', () => {
+                if (historyChart) {
+                    if (lastHistoryData.length) {
+                        updateHistoryChartWithData(lastHistoryData);
+                    } else {
+                        applyMetricSelection();
+                    }
+                }
+            });
+        });
+        document.getElementById('refresh_seconds').addEventListener('change', (event) => {
+            const seconds = setRefreshSeconds(event.target.value);
+            event.target.value = seconds;
+        });
         
         // 點擊模態框外部關閉
         window.onclick = function(event) {

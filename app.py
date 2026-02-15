@@ -62,11 +62,15 @@ latest_reading = {
     'temperature_c': None,
     'humidity': None,
     'rssi': None,
+    'cpu_usage_percent': None,
+    'ram_usage_percent': None,
+    'cpu_temp_c': None,
     'timestamp': None
 }
 
 monitoring_active = False
 monitoring_thread = None
+_cpu_usage_prev = {'total': None, 'idle': None}
 
 
 def get_db():
@@ -74,6 +78,95 @@ def get_db():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _read_cpu_usage_percent():
+    """從 /proc/stat 計算 CPU 使用率（百分比）"""
+    global _cpu_usage_prev
+    try:
+        with open('/proc/stat', 'r', encoding='utf-8') as f:
+            first_line = f.readline().strip()
+        parts = first_line.split()
+        if len(parts) < 8 or parts[0] != 'cpu':
+            return None
+
+        values = [int(v) for v in parts[1:8]]
+        idle = values[3] + values[4]  # idle + iowait
+        total = sum(values)
+
+        prev_total = _cpu_usage_prev['total']
+        prev_idle = _cpu_usage_prev['idle']
+        _cpu_usage_prev = {'total': total, 'idle': idle}
+
+        if prev_total is None or prev_idle is None:
+            # 第一次呼叫先回傳即時近似值
+            if total <= 0:
+                return None
+            return round(max(0.0, min(100.0, (1 - (idle / total)) * 100.0)), 1)
+
+        total_diff = total - prev_total
+        idle_diff = idle - prev_idle
+        if total_diff <= 0:
+            return None
+
+        usage = (1.0 - (idle_diff / total_diff)) * 100.0
+        return round(max(0.0, min(100.0, usage)), 1)
+    except Exception:
+        return None
+
+
+def _read_ram_usage_percent():
+    """從 /proc/meminfo 計算 RAM 使用率（百分比）"""
+    try:
+        mem_total = None
+        mem_available = None
+        with open('/proc/meminfo', 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    mem_total = int(line.split()[1])  # kB
+                elif line.startswith('MemAvailable:'):
+                    mem_available = int(line.split()[1])  # kB
+
+        if not mem_total or mem_available is None:
+            return None
+
+        used = mem_total - mem_available
+        if mem_total <= 0:
+            return None
+
+        return round(max(0.0, min(100.0, (used / mem_total) * 100.0)), 1)
+    except Exception:
+        return None
+
+
+def _read_cpu_temp_c():
+    """讀取 CPU 溫度（攝氏）"""
+    candidates = [
+        '/sys/class/thermal/thermal_zone0/temp',
+        '/sys/devices/virtual/thermal/thermal_zone0/temp',
+    ]
+    for path in candidates:
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    raw = f.read().strip()
+                value = float(raw) / 1000.0
+                return round(value, 1)
+        except Exception:
+            continue
+    return None
+
+
+def get_system_metrics():
+    """讀取樹莓派系統資訊"""
+    return {
+        'cpu_usage_percent': _read_cpu_usage_percent(),
+        'ram_usage_percent': _read_ram_usage_percent(),
+        'temperatures_c': {
+            'cpu': _read_cpu_temp_c(),
+        },
+        'timestamp': now_taiwan().isoformat()
+    }
 
 
 def init_db():
@@ -87,9 +180,21 @@ def init_db():
             temperature_c REAL,
             humidity REAL,
             raw_data TEXT,
-            rssi INTEGER
+            rssi INTEGER,
+            cpu_usage_percent REAL,
+            ram_usage_percent REAL,
+            cpu_temp_c REAL
         )
     """)
+    existing_cols = {
+        row["name"] for row in conn.execute("PRAGMA table_info(readings)").fetchall()
+    }
+    if "cpu_usage_percent" not in existing_cols:
+        conn.execute("ALTER TABLE readings ADD COLUMN cpu_usage_percent REAL")
+    if "ram_usage_percent" not in existing_cols:
+        conn.execute("ALTER TABLE readings ADD COLUMN ram_usage_percent REAL")
+    if "cpu_temp_c" not in existing_cols:
+        conn.execute("ALTER TABLE readings ADD COLUMN cpu_temp_c REAL")
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_timestamp ON readings(timestamp)
     """)
@@ -134,25 +239,48 @@ def parse_temp_data(data):
     return None
 
 
-def save_reading(co2_ppm=None, temperature_c=None, humidity=None, raw_data=None, rssi=None):
+def save_reading(
+    co2_ppm=None,
+    temperature_c=None,
+    humidity=None,
+    raw_data=None,
+    rssi=None,
+    cpu_usage_percent=None,
+    ram_usage_percent=None,
+    cpu_temp_c=None
+):
     """儲存讀數到資料庫"""
     conn = get_db()
     conn.execute("""
-        INSERT INTO readings (timestamp, co2_ppm, temperature_c, humidity, raw_data, rssi)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO readings (
+            timestamp, co2_ppm, temperature_c, humidity, raw_data, rssi,
+            cpu_usage_percent, ram_usage_percent, cpu_temp_c
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         now_taiwan().isoformat(),
         co2_ppm,
         temperature_c,
         humidity,
         raw_data,
-        rssi
+        rssi,
+        cpu_usage_percent,
+        ram_usage_percent,
+        cpu_temp_c
     ))
     conn.commit()
     conn.close()
 
 
-def update_latest_reading(co2_ppm=None, temperature_c=None, humidity=None, rssi=None):
+def update_latest_reading(
+    co2_ppm=None,
+    temperature_c=None,
+    humidity=None,
+    rssi=None,
+    cpu_usage_percent=None,
+    ram_usage_percent=None,
+    cpu_temp_c=None
+):
     """更新最新讀數並廣播"""
     global latest_reading
     
@@ -164,6 +292,12 @@ def update_latest_reading(co2_ppm=None, temperature_c=None, humidity=None, rssi=
         latest_reading['humidity'] = humidity
     if rssi is not None:
         latest_reading['rssi'] = rssi
+    if cpu_usage_percent is not None:
+        latest_reading['cpu_usage_percent'] = cpu_usage_percent
+    if ram_usage_percent is not None:
+        latest_reading['ram_usage_percent'] = ram_usage_percent
+    if cpu_temp_c is not None:
+        latest_reading['cpu_temp_c'] = cpu_temp_c
     
     latest_reading['timestamp'] = now_taiwan().isoformat()
     
@@ -374,19 +508,29 @@ async def monitor_myco2_async():
             if manufacturer_data and SENSIRION_BLE_AVAILABLE:
                 sensirion_result = parse_with_sensirion_ble(manufacturer_data, rssi)
                 if sensirion_result:
+                    system_metrics = get_system_metrics()
+                    cpu_usage = system_metrics.get('cpu_usage_percent')
+                    ram_usage = system_metrics.get('ram_usage_percent')
+                    cpu_temp = (system_metrics.get('temperatures_c') or {}).get('cpu')
                     log_debug(f"使用 sensirion-ble 解析廣告數據成功: {sensirion_result}")
                     save_reading(
                         co2_ppm=sensirion_result.get('co2_ppm'),
                         temperature_c=sensirion_result.get('temperature_c'),
                         humidity=sensirion_result.get('humidity'),
                         rssi=rssi,
+                        cpu_usage_percent=cpu_usage,
+                        ram_usage_percent=ram_usage,
+                        cpu_temp_c=cpu_temp,
                         raw_data=manufacturer_data.get(0x06d5, b'').hex() if 0x06d5 in manufacturer_data else ''
                     )
                     update_latest_reading(
                         co2_ppm=sensirion_result.get('co2_ppm'),
                         temperature_c=sensirion_result.get('temperature_c'),
                         humidity=sensirion_result.get('humidity'),
-                        rssi=rssi
+                        rssi=rssi,
+                        cpu_usage_percent=cpu_usage,
+                        ram_usage_percent=ram_usage,
+                        cpu_temp_c=cpu_temp
                     )
             elif not SENSIRION_BLE_AVAILABLE:
                 log_debug("警告：sensirion-ble 庫未安裝，無法解析數據")
@@ -524,15 +668,24 @@ def api_latest():
     return jsonify(latest_reading)
 
 
+@app.route('/api/system')
+def api_system():
+    """獲取樹莓派系統資訊"""
+    return jsonify(get_system_metrics())
+
+
 @app.route('/api/history')
 def api_history():
     """獲取歷史數據"""
     hours = int(request.args.get('hours', 24))
+    max_points = int(request.args.get('max_points', 0))
     since = now_taiwan() - timedelta(hours=hours)
     
     conn = get_db()
     rows = conn.execute("""
-        SELECT timestamp, co2_ppm, temperature_c, humidity, rssi
+        SELECT
+            timestamp, co2_ppm, temperature_c, humidity, rssi,
+            cpu_usage_percent, ram_usage_percent, cpu_temp_c
         FROM readings
         WHERE timestamp >= ?
         ORDER BY timestamp ASC
@@ -540,6 +693,13 @@ def api_history():
     conn.close()
     
     data = [dict(row) for row in rows]
+    if max_points > 0 and len(data) > max_points:
+        step = len(data) / max_points
+        sampled = []
+        for i in range(max_points):
+            idx = int(i * step)
+            sampled.append(data[min(idx, len(data) - 1)])
+        data = sampled
     return jsonify(data)
 
 
