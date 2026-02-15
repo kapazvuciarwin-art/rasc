@@ -1,0 +1,37 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 資料庫和日誌
+*.db
+*.log
+*.sqlite
+*.sqlite3
+
+# 環境變數和配置
+.env
+.env.local
+telegram_config.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系統文件
+.DS_Store
+Thumbs.db
+
+# 臨時文件
+*.tmp
+*.bak
+*.cache
+
+# 配置文件（包含敏感信息）
+.config/

@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyCO2 監控儀表板</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: "Segoe UI", "Noto Sans TC", sans-serif;
+            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e8e8e8;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #fff;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            min-width: 200px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .status-card h3 {
+            font-size: 0.9em;
+            color: #a1a1aa;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .status-card .value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .status-card .unit {
+            font-size: 1em;
+            color: #a1a1aa;
+        }
+        
+        .status-card.co2 .value { color: #60a5fa; }
+        .status-card.temp .value { color: #f87171; }
+        .status-card.humidity .value { color: #34d399; }
+        .status-card.rssi .value { color: #a78bfa; }
+        
+        .status-card .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 10px;
+            background: #ef4444;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-card .status-indicator.active {
+            background: #10b981;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .chart-container h2 {
+            margin-bottom: 20px;
+            color: #fff;
+            font-size: 1.5em;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .btn.active {
+            background: #3b82f6;
+        }
+        
+        .timestamp {
+            text-align: center;
+            color: #a1a1aa;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        
+        .no-data {
+            text-align: center;
+            color: #a1a1aa;
+            padding: 40px;
+            font-size: 1.2em;
+        }
+        
+        /* 設定模態框 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+        }
+        
+        .modal-content {
+            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        
+        .modal-header h2 {
+            color: #fff;
+            margin: 0;
+        }
+        
+        .close {
+            color: #a1a1aa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            background: none;
+            border: none;
+        }
+        
+        .close:hover {
+            color: #fff;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #e8e8e8;
+            font-weight: 500;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 1em;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+        
+        .form-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .threshold-section {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .threshold-section h3 {
+            color: #fff;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .btn-primary {
+            background: #3b82f6;
+            color: #fff;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+            <h1 style="margin: 0;">🌡️ MyCO2 環境監控儀表板</h1>
+            <button class="btn" onclick="openSettings()" style="padding: 12px 24px; font-size: 1em;">⚙️ 通知設定</button>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-card co2">
+                <h3>CO₂ 濃度</h3>
+                <div class="value" id="co2-value">--</div>
+                <div class="unit">ppm</div>
+                <span class="status-indicator" id="co2-indicator"></span>
+            </div>
+            
+            <div class="status-card temp">
+                <h3>溫度</h3>
+                <div class="value" id="temp-value">--</div>
+                <div class="unit">°C</div>
+                <span class="status-indicator" id="temp-indicator"></span>
+            </div>
+            
+            <div class="status-card humidity">
+                <h3>濕度</h3>
+                <div class="value" id="humidity-value">--</div>
+                <div class="unit">%</div>
+                <span class="status-indicator" id="humidity-indicator"></span>
+            </div>
+            
+            <div class="status-card rssi">
+                <h3>訊號強度</h3>
+                <div class="value" id="rssi-value">--</div>
+                <div class="unit">dBm</div>
+                <span class="status-indicator" id="rssi-indicator"></span>
+            </div>
+        </div>
+        
+        <div class="chart-container">
+            <h2>歷史數據</h2>
+            <div class="controls">
+                <button class="btn active" onclick="loadHistory(1)">1小時</button>
+                <button class="btn" onclick="loadHistory(6)">6小時</button>
+                <button class="btn" onclick="loadHistory(24)">24小時</button>
+                <button class="btn" onclick="loadHistory(48)">48小時</button>
+            </div>
+            <canvas id="historyChart"></canvas>
+        </div>
+        
+        <div class="timestamp" id="last-update">
+            最後更新: --
+        </div>
+    </div>
+    
+    <!-- 設定模態框 -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📱 Telegram 通知設定</h2>
+                <button class="close" onclick="closeSettings()">&times;</button>
+            </div>
+            <div id="settingsAlert"></div>
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="enabled" onchange="toggleSettings()">
+                        啟用 Telegram 通知
+                    </label>
+                </div>
+                
+                <div id="settingsFields" style="display: none;">
+                    <div class="form-group">
+                        <label>Bot Token</label>
+                        <input type="text" id="bot_token" placeholder="例如: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Chat ID</label>
+                        <input type="text" id="chat_id" placeholder="例如: 123456789">
+                    </div>
+                    
+                    <div class="threshold-section">
+                        <h3>CO₂ 濃度 (ppm)</h3>
+                        <label>
+                            <input type="checkbox" id="co2_enabled">
+                            啟用 CO₂ 通知
+                        </label>
+                        <div class="form-row" style="margin-top: 15px;">
+                            <div class="form-group">
+                                <label>最小值</label>
+                                <input type="number" id="co2_min" placeholder="留空表示不限制">
+                            </div>
+                            <div class="form-group">
+                                <label>最大值</label>
+                                <input type="number" id="co2_max" placeholder="例如: 1000">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>冷卻時間（分鐘）</label>
+                            <input type="number" id="co2_cooldown" value="30" min="1">
+                        </div>
+                    </div>
+                    
+                    <div class="threshold-section">
+                        <h3>溫度 (°C)</h3>
+                        <label>
+                            <input type="checkbox" id="temp_enabled">
+                            啟用溫度通知
+                        </label>
+                        <div class="form-row" style="margin-top: 15px;">
+                            <div class="form-group">
+                                <label>最小值</label>
+                                <input type="number" id="temp_min" placeholder="例如: 10">
+                            </div>
+                            <div class="form-group">
+                                <label>最大值</label>
+                                <input type="number" id="temp_max" placeholder="例如: 30">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>冷卻時間（分鐘）</label>
+                            <input type="number" id="temp_cooldown" value="30" min="1">
+                        </div>
+                    </div>
+                    
+                    <div class="threshold-section">
+                        <h3>濕度 (%)</h3>
+                        <label>
+                            <input type="checkbox" id="humidity_enabled">
+                            啟用濕度通知
+                        </label>
+                        <div class="form-row" style="margin-top: 15px;">
+                            <div class="form-group">
+                                <label>最小值</label>
+                                <input type="number" id="humidity_min" placeholder="例如: 30">
+                            </div>
+                            <div class="form-group">
+                                <label>最大值</label>
+                                <input type="number" id="humidity_max" placeholder="例如: 70">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>冷卻時間（分鐘）</label>
+                            <input type="number" id="humidity_cooldown" value="30" min="1">
+                        </div>
+                    </div>
+                    
+                    <button type="button" class="btn-secondary" onclick="testTelegram()">測試通知</button>
+                    <button type="submit" class="btn-primary">儲存設定</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        // WebSocket 連接
+        const socket = io();
+        
+        // 圖表
+        let historyChart = null;
+        let currentHours = 24;
+        
+        // 初始化圖表
+        function initChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'CO₂ (ppm)',
+                            data: [],
+                            borderColor: '#60a5fa',
+                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '溫度 (°C)',
+                            data: [],
+                            borderColor: '#f87171',
+                            backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        },
+                        {
+                            label: '濕度 (%)',
+                            data: [],
+                            borderColor: '#34d399',
+                            backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y2'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e8e8e8'
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(255, 255, 255, 0.1)',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#a1a1aa' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            ticks: { color: '#60a5fa' },
+                            grid: { color: 'rgba(96, 165, 250, 0.1)' },
+                            title: {
+                                display: true,
+                                text: 'CO₂ (ppm)',
+                                color: '#60a5fa'
+                            }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            ticks: { color: '#f87171' },
+                            grid: { drawOnChartArea: false },
+                            title: {
+                                display: true,
+                                text: '溫度 (°C)',
+                                color: '#f87171'
+                            }
+                        },
+                        y2: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            ticks: { color: '#34d399' },
+                            grid: { drawOnChartArea: false },
+                            title: {
+                                display: true,
+                                text: '濕度 (%)',
+                                color: '#34d399'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 更新顯示值
+        function updateDisplay(data) {
+            if (data.co2_ppm !== null && data.co2_ppm !== undefined) {
+                document.getElementById('co2-value').textContent = data.co2_ppm;
+                document.getElementById('co2-indicator').classList.add('active');
+            }
+            
+            if (data.temperature_c !== null && data.temperature_c !== undefined) {
+                document.getElementById('temp-value').textContent = data.temperature_c.toFixed(1);
+                document.getElementById('temp-indicator').classList.add('active');
+            }
+            
+            if (data.humidity !== null && data.humidity !== undefined) {
+                document.getElementById('humidity-value').textContent = data.humidity.toFixed(1);
+                document.getElementById('humidity-indicator').classList.add('active');
+            }
+            
+            if (data.rssi !== null && data.rssi !== undefined) {
+                document.getElementById('rssi-value').textContent = data.rssi;
+                document.getElementById('rssi-indicator').classList.add('active');
+            }
+            
+            if (data.timestamp) {
+                const date = new Date(data.timestamp);
+                document.getElementById('last-update').textContent = 
+                    `最後更新: ${date.toLocaleString('zh-TW')}`;
+            }
+        }
+        
+        // 載入歷史數據
+        async function loadHistory(hours) {
+            currentHours = hours;
+            
+            // 更新按鈕狀態
+            document.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            try {
+                const response = await fetch(`/api/history?hours=${hours}`);
+                const data = await response.json();
+                
+                if (data.length === 0) {
+                    historyChart.data.labels = [];
+                    historyChart.data.datasets[0].data = [];
+                    historyChart.data.datasets[1].data = [];
+                    historyChart.data.datasets[2].data = [];
+                    historyChart.update();
+                    return;
+                }
+                
+                // 處理數據
+                const labels = data.map(d => {
+                    const date = new Date(d.timestamp);
+                    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                const co2Data = data.map(d => d.co2_ppm).filter(v => v !== null);
+                const tempData = data.map(d => d.temperature_c).filter(v => v !== null);
+                const humidityData = data.map(d => d.humidity).filter(v => v !== null);
+                
+                // 更新圖表
+                historyChart.data.labels = labels;
+                historyChart.data.datasets[0].data = data.map(d => d.co2_ppm);
+                historyChart.data.datasets[1].data = data.map(d => d.temperature_c);
+                historyChart.data.datasets[2].data = data.map(d => d.humidity);
+                historyChart.update();
+                
+            } catch (error) {
+                console.error('載入歷史數據失敗:', error);
+            }
+        }
+        
+        // WebSocket 事件處理
+        socket.on('connect', () => {
+            console.log('已連接到伺服器');
+            // 載入初始數據
+            fetch('/api/latest')
+                .then(r => r.json())
+                .then(data => updateDisplay(data));
+            loadHistory(24);
+        });
+        
+        socket.on('sensor_update', (data) => {
+            updateDisplay(data);
+        });
+        
+        // 初始化
+        initChart();
+        loadHistory(24);
+        
+        // 定期刷新歷史數據
+        setInterval(() => {
+            loadHistory(currentHours);
+        }, 60000); // 每分鐘更新一次
+        
+        // 設定相關函數
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'block';
+            loadSettings();
+        }
+        
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+            document.getElementById('settingsAlert').innerHTML = '';
+        }
+        
+        function toggleSettings() {
+            const enabled = document.getElementById('enabled').checked;
+            document.getElementById('settingsFields').style.display = enabled ? 'block' : 'none';
+        }
+        
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/telegram/config');
+                const config = await response.json();
+                
+                document.getElementById('enabled').checked = config.enabled || false;
+                toggleSettings();
+                
+                if (config.bot_token && config.bot_token !== '***') {
+                    document.getElementById('bot_token').value = config.bot_token;
+                }
+                document.getElementById('chat_id').value = config.chat_id || '';
+                
+                // CO2 設定
+                const co2 = config.thresholds.co2_ppm || {};
+                document.getElementById('co2_enabled').checked = co2.enabled || false;
+                document.getElementById('co2_min').value = co2.min || '';
+                document.getElementById('co2_max').value = co2.max || '';
+                document.getElementById('co2_cooldown').value = co2.cooldown_minutes || 30;
+                
+                // 溫度設定
+                const temp = config.thresholds.temperature_c || {};
+                document.getElementById('temp_enabled').checked = temp.enabled || false;
+                document.getElementById('temp_min').value = temp.min || '';
+                document.getElementById('temp_max').value = temp.max || '';
+                document.getElementById('temp_cooldown').value = temp.cooldown_minutes || 30;
+                
+                // 濕度設定
+                const humidity = config.thresholds.humidity || {};
+                document.getElementById('humidity_enabled').checked = humidity.enabled || false;
+                document.getElementById('humidity_min').value = humidity.min || '';
+                document.getElementById('humidity_max').value = humidity.max || '';
+                document.getElementById('humidity_cooldown').value = humidity.cooldown_minutes || 30;
+            } catch (error) {
+                showAlert('載入設定失敗: ' + error.message, 'error');
+            }
+        }
+        
+        async function saveSettings(event) {
+            event.preventDefault();
+            
+            const config = {
+                enabled: document.getElementById('enabled').checked,
+                bot_token: document.getElementById('bot_token').value,
+                chat_id: document.getElementById('chat_id').value,
+                thresholds: {
+                    co2_ppm: {
+                        enabled: document.getElementById('co2_enabled').checked,
+                        min: document.getElementById('co2_min').value ? parseFloat(document.getElementById('co2_min').value) : null,
+                        max: document.getElementById('co2_max').value ? parseFloat(document.getElementById('co2_max').value) : null,
+                        cooldown_minutes: parseInt(document.getElementById('co2_cooldown').value) || 30
+                    },
+                    temperature_c: {
+                        enabled: document.getElementById('temp_enabled').checked,
+                        min: document.getElementById('temp_min').value ? parseFloat(document.getElementById('temp_min').value) : null,
+                        max: document.getElementById('temp_max').value ? parseFloat(document.getElementById('temp_max').value) : null,
+                        cooldown_minutes: parseInt(document.getElementById('temp_cooldown').value) || 30
+                    },
+                    humidity: {
+                        enabled: document.getElementById('humidity_enabled').checked,
+                        min: document.getElementById('humidity_min').value ? parseFloat(document.getElementById('humidity_min').value) : null,
+                        max: document.getElementById('humidity_max').value ? parseFloat(document.getElementById('humidity_max').value) : null,
+                        cooldown_minutes: parseInt(document.getElementById('humidity_cooldown').value) || 30
+                    }
+                }
+            };
+            
+            try {
+                const response = await fetch('/api/telegram/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    showAlert('設定已儲存！', 'success');
+                } else {
+                    showAlert('儲存失敗: ' + (result.error || '未知錯誤'), 'error');
+                }
+            } catch (error) {
+                showAlert('儲存失敗: ' + error.message, 'error');
+            }
+        }
+        
+        async function testTelegram() {
+            try {
+                const response = await fetch('/api/telegram/test', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    showAlert('測試通知已發送！請檢查您的 Telegram。', 'success');
+                } else {
+                    showAlert('測試失敗: ' + (result.error || '未知錯誤'), 'error');
+                }
+            } catch (error) {
+                showAlert('測試失敗: ' + error.message, 'error');
+            }
+        }
+        
+        function showAlert(message, type) {
+            const alertDiv = document.getElementById('settingsAlert');
+            alertDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+            setTimeout(() => {
+                alertDiv.innerHTML = '';
+            }, 5000);
+        }
+        
+        // 綁定表單提交事件
+        document.getElementById('settingsForm').addEventListener('submit', saveSettings);
+        
+        // 點擊模態框外部關閉
+        window.onclick = function(event) {
+            const modal = document.getElementById('settingsModal');
+            if (event.target == modal) {
+                closeSettings();
+            }
+        }
+    </script>
+</body>
+</html>
