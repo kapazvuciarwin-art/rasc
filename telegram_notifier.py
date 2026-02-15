@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Telegram 通知模組"""
 
-import os
 import requests
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from copy import deepcopy
 
 # 台灣時區 (UTC+8)
 TAIWAN_TZ = timezone(timedelta(hours=8))
@@ -45,39 +45,57 @@ DEFAULT_CONFIG = {
     "last_notification": {}  # 記錄上次通知時間
 }
 
+_CONFIG_CACHE = None
+_CONFIG_MTIME = None
+
+
+def _merge_with_default_config(config):
+    """合併預設配置，確保欄位完整"""
+    merged_config = deepcopy(DEFAULT_CONFIG)
+    merged_config.update(config)
+    for key in DEFAULT_CONFIG["thresholds"]:
+        if key not in merged_config["thresholds"]:
+            merged_config["thresholds"][key] = deepcopy(DEFAULT_CONFIG["thresholds"][key])
+        else:
+            for subkey in DEFAULT_CONFIG["thresholds"][key]:
+                if subkey not in merged_config["thresholds"][key]:
+                    merged_config["thresholds"][key][subkey] = DEFAULT_CONFIG["thresholds"][key][subkey]
+    return merged_config
+
 
 def load_config():
-    """載入配置"""
+    """載入配置（含簡易快取）"""
+    global _CONFIG_CACHE, _CONFIG_MTIME
+
     if CONFIG_FILE.exists():
         try:
+            current_mtime = CONFIG_FILE.stat().st_mtime
+            if _CONFIG_CACHE is not None and _CONFIG_MTIME == current_mtime:
+                return deepcopy(_CONFIG_CACHE)
+
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                # 合併預設配置，確保所有欄位都存在
-                merged_config = DEFAULT_CONFIG.copy()
-                merged_config.update(config)
-                # 確保 thresholds 結構完整
-                for key in DEFAULT_CONFIG["thresholds"]:
-                    if key not in merged_config["thresholds"]:
-                        merged_config["thresholds"][key] = DEFAULT_CONFIG["thresholds"][key].copy()
-                    else:
-                        for subkey in DEFAULT_CONFIG["thresholds"][key]:
-                            if subkey not in merged_config["thresholds"][key]:
-                                merged_config["thresholds"][key][subkey] = DEFAULT_CONFIG["thresholds"][key][subkey]
-                return merged_config
+                merged_config = _merge_with_default_config(config)
+                _CONFIG_CACHE = deepcopy(merged_config)
+                _CONFIG_MTIME = current_mtime
+                return deepcopy(merged_config)
         except Exception as e:
             print(f"[Telegram] 載入配置失敗: {e}")
-            return DEFAULT_CONFIG.copy()
+            return deepcopy(DEFAULT_CONFIG)
     else:
         # 如果配置文件不存在，創建預設配置
-        save_config(DEFAULT_CONFIG.copy())
-        return DEFAULT_CONFIG.copy()
+        save_config(deepcopy(DEFAULT_CONFIG))
+        return deepcopy(DEFAULT_CONFIG)
 
 
 def save_config(config):
     """保存配置"""
+    global _CONFIG_CACHE, _CONFIG_MTIME
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
+        _CONFIG_CACHE = _merge_with_default_config(config)
+        _CONFIG_MTIME = CONFIG_FILE.stat().st_mtime if CONFIG_FILE.exists() else None
         return True
     except Exception as e:
         print(f"[Telegram] 保存配置失敗: {e}")
@@ -174,11 +192,13 @@ def should_send_notification(sensor_type, config):
     return True
 
 
-def update_last_notification(sensor_type, config):
-    """更新最後通知時間"""
+def update_last_notifications(sensor_types, config):
+    """批次更新最後通知時間（一次寫檔）"""
     if "last_notification" not in config:
         config["last_notification"] = {}
-    config["last_notification"][sensor_type] = now_taiwan().isoformat()
+    timestamp = now_taiwan().isoformat()
+    for sensor_type in sensor_types:
+        config["last_notification"][sensor_type] = timestamp
     save_config(config)
 
 
@@ -219,9 +239,13 @@ def check_and_notify(co2_ppm=None, temperature_c=None, humidity=None):
     if notifications:
         # 組合所有通知消息
         message_parts = ["<b>⚠️ MyCO2 感測器警報</b>\n"]
+        notified_sensors = []
         for sensor_type, msg in notifications:
             message_parts.append(f"• {msg}")
-            update_last_notification(sensor_type, config)
+            notified_sensors.append(sensor_type)
+
+        # 只寫一次配置檔，降低 I/O 成本
+        update_last_notifications(notified_sensors, config)
         
         message_parts.append(f"\n時間: {now_taiwan().strftime('%Y-%m-%d %H:%M:%S')}")
         

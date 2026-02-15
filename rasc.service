@@ -1,0 +1,17 @@
+[Unit]
+Description=MyCO2 監控網站 (rasc)
+After=network.target bluetooth.target
+
+[Service]
+Type=simple
+User=kapraspi
+WorkingDirectory=/home/kapraspi/rasc
+Environment="PATH=/home/kapraspi/rasc/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/kapraspi/rasc/venv/bin/python /home/kapraspi/rasc/app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
