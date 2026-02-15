@@ -304,6 +304,48 @@
             color: #ef4444;
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
+        
+        .history-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+        
+        .history-container {
+            display: none;
+        }
+        
+        .history-container.visible {
+            display: block;
+        }
+        
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .history-table th,
+        .history-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .history-table th {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-weight: 600;
+        }
+        
+        .history-table td {
+            color: #e8e8e8;
+        }
+        
+        .history-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
     </style>
 </head>
 <body>
@@ -343,15 +385,50 @@
             </div>
         </div>
         
-        <div class="chart-container">
-            <h2>歷史數據</h2>
+        <div class="history-buttons">
+            <button class="btn" onclick="showHistoryChart()">📈 顯示折線圖</button>
+            <button class="btn" onclick="showHistoryTable()">📊 顯示表格</button>
+        </div>
+        
+        <div class="chart-container history-container" id="chartContainer">
+            <h2>歷史數據 - 折線圖</h2>
             <div class="controls">
-                <button class="btn active" onclick="loadHistory(1)">1小時</button>
-                <button class="btn" onclick="loadHistory(6)">6小時</button>
-                <button class="btn" onclick="loadHistory(24)">24小時</button>
-                <button class="btn" onclick="loadHistory(48)">48小時</button>
+                <button class="btn active" onclick="loadHistory(1, this)">1小時</button>
+                <button class="btn" onclick="loadHistory(6, this)">6小時</button>
+                <button class="btn" onclick="loadHistory(24, this)">24小時</button>
+                <button class="btn" onclick="loadHistory(48, this)">48小時</button>
             </div>
             <canvas id="historyChart"></canvas>
+        </div>
+        
+        <div class="chart-container history-container" id="tableContainer">
+            <h2>歷史數據 - 表格</h2>
+            <div class="controls">
+                <button class="btn active" onclick="loadHistoryTable(1, this)">1小時</button>
+                <button class="btn" onclick="loadHistoryTable(6, this)">6小時</button>
+                <button class="btn" onclick="loadHistoryTable(24, this)">24小時</button>
+                <button class="btn" onclick="loadHistoryTable(48, this)">48小時</button>
+            </div>
+            <div id="historyTableWrapper">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>時間</th>
+                            <th>CO₂ (ppm)</th>
+                            <th>溫度 (°C)</th>
+                            <th>濕度 (%)</th>
+                            <th>訊號強度 (dBm)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr>
+                            <td colspan="5" style="text-align: center; padding: 40px;">
+                                <div class="no-data">點擊上方按鈕載入數據</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
         
         <div class="timestamp" id="last-update">
@@ -598,17 +675,59 @@
             }
         }
         
-        // 載入歷史數據
-        async function loadHistory(hours) {
+        // 顯示歷史折線圖
+        function showHistoryChart() {
+            document.getElementById('chartContainer').classList.add('visible');
+            document.getElementById('tableContainer').classList.remove('visible');
+            
+            // 如果圖表尚未初始化，先初始化
+            if (!historyChart) {
+                initChart();
+            }
+            
+            // 載入默認24小時數據
+            loadHistory(24, null);
+        }
+        
+        // 顯示歷史表格
+        function showHistoryTable() {
+            document.getElementById('tableContainer').classList.add('visible');
+            document.getElementById('chartContainer').classList.remove('visible');
+            
+            // 載入默認24小時數據
+            loadHistoryTable(24, null);
+        }
+        
+        // 載入歷史數據（折線圖）
+        async function loadHistory(hours, buttonElement) {
             currentHours = hours;
             
-            // 更新按鈕狀態
-            document.querySelectorAll('.btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
+            // 更新按鈕狀態（只在圖表容器內）
+            const chartContainer = document.getElementById('chartContainer');
+            chartContainer.querySelectorAll('.controls .btn').forEach(btn => btn.classList.remove('active'));
+            if (buttonElement) {
+                buttonElement.classList.add('active');
+            } else {
+                // 如果沒有傳入按鈕元素，找到對應小時的按鈕
+                const buttons = chartContainer.querySelectorAll('.controls .btn');
+                buttons.forEach(btn => {
+                    const btnText = btn.textContent.trim();
+                    if ((hours === 1 && btnText === '1小時') ||
+                        (hours === 6 && btnText === '6小時') ||
+                        (hours === 24 && btnText === '24小時') ||
+                        (hours === 48 && btnText === '48小時')) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
             
             try {
                 const response = await fetch(`/api/history?hours=${hours}`);
                 const data = await response.json();
+                
+                if (!historyChart) {
+                    initChart();
+                }
                 
                 if (data.length === 0) {
                     historyChart.data.labels = [];
@@ -629,10 +748,6 @@
                     });
                 });
                 
-                const co2Data = data.map(d => d.co2_ppm).filter(v => v !== null);
-                const tempData = data.map(d => d.temperature_c).filter(v => v !== null);
-                const humidityData = data.map(d => d.humidity).filter(v => v !== null);
-                
                 // 更新圖表
                 historyChart.data.labels = labels;
                 historyChart.data.datasets[0].data = data.map(d => d.co2_ppm);
@@ -645,6 +760,69 @@
             }
         }
         
+        // 載入歷史數據（表格）
+        async function loadHistoryTable(hours, buttonElement) {
+            // 更新按鈕狀態（只在表格容器內）
+            const tableContainer = document.getElementById('tableContainer');
+            tableContainer.querySelectorAll('.controls .btn').forEach(btn => btn.classList.remove('active'));
+            if (buttonElement) {
+                buttonElement.classList.add('active');
+            } else {
+                // 如果沒有傳入按鈕元素，找到對應小時的按鈕
+                const buttons = tableContainer.querySelectorAll('.controls .btn');
+                buttons.forEach(btn => {
+                    const btnText = btn.textContent.trim();
+                    if ((hours === 1 && btnText === '1小時') ||
+                        (hours === 6 && btnText === '6小時') ||
+                        (hours === 24 && btnText === '24小時') ||
+                        (hours === 48 && btnText === '48小時')) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+            
+            try {
+                const response = await fetch(`/api/history?hours=${hours}`);
+                const data = await response.json();
+                
+                const tbody = document.getElementById('historyTableBody');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px;"><div class="no-data">沒有數據</div></td></tr>';
+                    return;
+                }
+                
+                // 生成表格行
+                tbody.innerHTML = data.map(d => {
+                    const date = new Date(d.timestamp);
+                    const timeStr = date.toLocaleString('zh-TW', { 
+                        timeZone: 'Asia/Taipei',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    
+                    return `
+                        <tr>
+                            <td>${timeStr}</td>
+                            <td>${d.co2_ppm !== null ? d.co2_ppm : '--'}</td>
+                            <td>${d.temperature_c !== null ? d.temperature_c.toFixed(1) : '--'}</td>
+                            <td>${d.humidity !== null ? d.humidity.toFixed(1) : '--'}</td>
+                            <td>${d.rssi !== null ? d.rssi : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                console.error('載入歷史表格失敗:', error);
+                document.getElementById('historyTableBody').innerHTML = 
+                    '<tr><td colspan="5" style="text-align: center; padding: 40px;"><div class="no-data">載入失敗</div></td></tr>';
+            }
+        }
+        
         // WebSocket 事件處理
         socket.on('connect', () => {
             console.log('已連接到伺服器');
@@ -652,21 +830,15 @@
             fetch('/api/latest')
                 .then(r => r.json())
                 .then(data => updateDisplay(data));
-            loadHistory(24);
+            // 不再自動載入歷史數據，等待用戶點擊按鈕
         });
         
         socket.on('sensor_update', (data) => {
             updateDisplay(data);
         });
         
-        // 初始化
-        initChart();
-        loadHistory(24);
-        
-        // 定期刷新歷史數據
-        setInterval(() => {
-            loadHistory(currentHours);
-        }, 60000); // 每分鐘更新一次
+        // 初始化（但不載入數據）
+        // 圖表將在用戶點擊按鈕時才初始化
         
         // 設定相關函數
         function openSettings() {
