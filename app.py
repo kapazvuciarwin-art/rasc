@@ -105,7 +105,12 @@ def update_latest_reading(
     # 檢查並發送 Telegram 通知
     if TELEGRAM_AVAILABLE:
         try:
-            check_and_notify(co2_ppm=co2_ppm, temperature_c=temperature_c, humidity=humidity)
+            check_and_notify(
+                co2_ppm=co2_ppm,
+                temperature_c=temperature_c,
+                humidity=humidity,
+                ram_usage_percent=ram_usage_percent
+            )
         except Exception as e:
             log_debug(f"Telegram 通知檢查失敗: {e}")
     

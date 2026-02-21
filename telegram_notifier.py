@@ -40,6 +40,12 @@ DEFAULT_CONFIG = {
             "min": 30,
             "max": 70,
             "cooldown_minutes": 30
+        },
+        "ram_usage_percent": {
+            "enabled": False,
+            "min": None,
+            "max": 90,
+            "cooldown_minutes": 30
         }
     },
     "last_notification": {}  # 記錄上次通知時間
@@ -202,7 +208,7 @@ def update_last_notifications(sensor_types, config):
     save_config(config)
 
 
-def check_and_notify(co2_ppm=None, temperature_c=None, humidity=None):
+def check_and_notify(co2_ppm=None, temperature_c=None, humidity=None, ram_usage_percent=None):
     """檢查數值並發送通知"""
     config = load_config()
     
@@ -234,6 +240,12 @@ def check_and_notify(co2_ppm=None, temperature_c=None, humidity=None):
         should_notify, message = check_threshold("humidity", humidity, config)
         if should_notify and should_send_notification("humidity", config):
             notifications.append(("humidity", message))
+
+    # 檢查 RAM 使用率
+    if ram_usage_percent is not None:
+        should_notify, message = check_threshold("ram_usage_percent", ram_usage_percent, config)
+        if should_notify and should_send_notification("ram_usage_percent", config):
+            notifications.append(("ram_usage_percent", message))
     
     # 發送通知
     if notifications:

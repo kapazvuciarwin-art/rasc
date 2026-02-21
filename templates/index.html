@@ -15,7 +15,7 @@
         
         body {
             font-family: "Segoe UI", "Noto Sans TC", sans-serif;
-            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            background: #111827;
             color: #e8e8e8;
             padding: clamp(10px, 1.6vw, 20px);
             min-height: 100vh;
@@ -43,11 +43,9 @@
         
         .status-card {
             background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: clamp(12px, 1.3vw, 18px);
             text-align: center;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.1);
         }
         
@@ -100,11 +98,9 @@
         
         .chart-container {
             background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
             border-radius: 15px;
             padding: 25px;
             margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             border: 1px solid rgba(255,255,255,0.1);
         }
         
@@ -150,7 +146,6 @@
         
         .btn:hover {
             background: rgba(255, 255, 255, 0.3);
-            transform: translateY(-2px);
         }
         
         .btn.active {
@@ -181,18 +176,16 @@
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(5px);
         }
         
         .modal-content {
-            background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+            background: #1a1f2e;
             margin: 5% auto;
             padding: 30px;
             border-radius: 15px;
             max-width: 600px;
             max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
             border: 1px solid rgba(255,255,255,0.1);
         }
 
@@ -536,6 +529,28 @@
                             <input type="number" id="humidity_cooldown" value="30" min="1">
                         </div>
                     </div>
+
+                    <div class="threshold-section">
+                        <h3>RAM 使用率 (%)</h3>
+                        <label>
+                            <input type="checkbox" id="ram_enabled">
+                            啟用 RAM 通知
+                        </label>
+                        <div class="form-row" style="margin-top: 15px;">
+                            <div class="form-group">
+                                <label>最小值</label>
+                                <input type="number" id="ram_min" placeholder="留空表示不限制">
+                            </div>
+                            <div class="form-group">
+                                <label>最大值</label>
+                                <input type="number" id="ram_max" placeholder="例如: 90">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>冷卻時間（分鐘）</label>
+                            <input type="number" id="ram_cooldown" value="30" min="1">
+                        </div>
+                    </div>
                     
                     <button type="button" class="btn-secondary" onclick="testTelegram()">測試通知</button>
                     <button type="submit" class="btn-primary">儲存設定</button>
@@ -552,6 +567,7 @@
         let historyChart = null;
         let currentHours = 24;
         let refreshTimer = null;
+        let isSettingsOpen = false;
         let lastHistoryData = [];
         const MAX_HISTORY_POINTS = 360;
 
@@ -804,6 +820,7 @@
 
             const seconds = getRefreshSeconds();
             refreshTimer = setInterval(() => {
+                if (isSettingsOpen) return;
                 fetchLatestSnapshot();
                 fetchSystemMetrics();
             }, seconds * 1000);
@@ -883,13 +900,17 @@
         
         // 設定相關函數
         function openSettings() {
+            isSettingsOpen = true;
             document.getElementById('settingsModal').style.display = 'block';
             loadSettings();
         }
         
         function closeSettings() {
+            isSettingsOpen = false;
             document.getElementById('settingsModal').style.display = 'none';
             document.getElementById('settingsAlert').innerHTML = '';
+            fetchLatestSnapshot();
+            fetchSystemMetrics();
         }
         
         function toggleSettings() {
@@ -931,6 +952,13 @@
                 document.getElementById('humidity_max').value = humidity.max || '';
                 document.getElementById('humidity_cooldown').value = humidity.cooldown_minutes || 30;
 
+                // RAM 使用率設定
+                const ram = config.thresholds.ram_usage_percent || {};
+                document.getElementById('ram_enabled').checked = ram.enabled || false;
+                document.getElementById('ram_min').value = ram.min || '';
+                document.getElementById('ram_max').value = ram.max || '';
+                document.getElementById('ram_cooldown').value = ram.cooldown_minutes || 30;
+
                 document.getElementById('refresh_seconds').value = getRefreshSeconds();
             } catch (error) {
                 showAlert('載入設定失敗: ' + error.message, 'error');
@@ -968,6 +996,12 @@
                         min: document.getElementById('humidity_min').value ? parseFloat(document.getElementById('humidity_min').value) : null,
                         max: document.getElementById('humidity_max').value ? parseFloat(document.getElementById('humidity_max').value) : null,
                         cooldown_minutes: parseInt(document.getElementById('humidity_cooldown').value) || 30
+                    },
+                    ram_usage_percent: {
+                        enabled: document.getElementById('ram_enabled').checked,
+                        min: document.getElementById('ram_min').value ? parseFloat(document.getElementById('ram_min').value) : null,
+                        max: document.getElementById('ram_max').value ? parseFloat(document.getElementById('ram_max').value) : null,
+                        cooldown_minutes: parseInt(document.getElementById('ram_cooldown').value) || 30
                     }
                 }
             };
@@ -1029,7 +1063,7 @@
                 console.error('Telegram 測試異常:', error);
             }
         }
-        
+
         function showAlert(message, type) {
             const alertDiv = document.getElementById('settingsAlert');
             alertDiv.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
